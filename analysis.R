@@ -243,3 +243,80 @@ cor_test_mat
 
 M<-cor(candata2)
 corrplot(M, method="circle", tl.cex=0.5)
+
+
+#           
+#-------------------
+#Receiver Operating Characteristic Curves for Each Predictor in Random Forest Model 
+#-------------------
+#
+
+library(caret)
+library(randomForest)
+library(pROC)
+library(stringr)
+library(phyloseq)
+
+ps<-phyloseq(OTU, TAX, META)
+ps.genus = tax_glom(ps, taxrank="Genus", NArm=FALSE)
+ps.filter<-phyloseq_filter_prevalence(ps.genus, prev.trh = 0.05, abund.trh = NULL,                                       threshold_condition = "OR", abund.type = "total")
+ps.subset<-subset_samples(ps.filter, Remission_cat2!= "NA")
+
+otuml<-otu_table(ps.subset)
+otuml<-t(otuml)
+
+metadataml<-sample_data(ps.subset)
+
+train_index<-createDataPartition(metadataml$Remission_cat2, p=0.75, list=FALSE)
+x.train<-otuml[train_index,]
+y.train<-metadataml$Remission_cat2[train_index]
+
+x.test<-otuml[-train_index,]
+y.test<-metadataml$Remission_cat2[-train_index]
+set.seed(1000)
+y.train<-as.factor(y.train)
+levels(y.train) <- c("remission", "activity")
+
+predictor_names2 <- colnames(x.train)[1:(ncol(x.train))]
+predictor_data <- x.train[, predictor_names2]
+predictor_df <- data.frame(predictor_data, y.train, check.names=FALSE)
+
+x.train2<-predictor_df["g__Rhodotorula"]
+x.train2<-as.matrix(x.train2)
+
+y.train2<-predictor_df["y.train"]
+y.train2<-as.matrix(y.train2)
+
+train_control<-trainControl(method="repeatedcv", number=5, repeats=10, summaryFunction=twoClassSummary, classProbs=TRUE)
+
+rf_model <- train(x=x.train2, y=as.factor(y.train2), data = predictor_df, method = "rf", trControl = train_control, ntree=1500)
+
+
+testing_names3 <- colnames(x.test)[1:(ncol(x.test))]
+testing_data <- x.test[, testing_names3]
+testing_df <- data.frame(testing_data, y.test, check.names=FALSE)
+
+x.test2<-testing_df["g__Rhodotorula"]
+x.test2<-as.matrix(x.test2)
+
+y.test2<-testing_df["y.test"]
+y.test2<-as.matrix(y.test2)
+
+predictions <- predict(rf_model, x.test2)
+
+testing2 <- ifelse(predictions == "activity", 1, 0)
+auc <- roc(y.test2, testing2)
+plot.roc(auc, legacy.axes=TRUE, print.auc = TRUE, xlim=c(0,1))
+ggroc(auc, legacy.axes = T) +
++     geom_abline(slope = 1 ,intercept = 0) + # add identity line
++     theme(
++         panel.background = element_blank(), 
++         axis.title.x = element_text(size =18, face = 'bold'),
++         axis.title.y = element_text(size =18, face = 'bold'),
++         panel.border = element_rect(size = 2, fill = NA), 
++         axis.text.x = element_text(size = 14, face ='bold'),
++         axis.text.y = element_text(size = 14, face ='bold')) +
++     xlab('100 - Specificity') +
++     ylab('Sensitivity') +
++     scale_x_continuous(breaks = (seq(0,1,0.25)*100)-100, labels = seq(0,1,0.25) * 100) + scale_y_continuous(breaks = seq(0,1,0.25)*100, labels = seq(0,1,0.25) * 100)
+
